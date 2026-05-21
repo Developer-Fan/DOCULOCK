@@ -1,0 +1,35 @@
+
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+.next/
+
+# Dependency directories
+.pnp/
+pnp.js
+
+# Testing
+coverage/
+
+# OS files
+.DS_Store
+
+# Misc
+.cache/
+*.log
+
+# make sure not to leak your data
+doculock.db

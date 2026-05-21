@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuLock - Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <nav class="nav glass" style="border-radius: 0 0 18px 18px;">
+        <div class="brand">DocuLock</div>
+        <div>
+            <span id="user-display" style="margin-right: 16px; font-size: 14px; font-weight: 500;"></span>
+            <button class="btn" onclick="createNewDoc()">New Document</button>
+            <button class="btn secondary" onclick="logout()">Sign Out</button>
+        </div>
+    </nav>
+
+    <div class="dashboard-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; border-bottom: 1px solid var(--border); padding-bottom: 24px;">
+            <div>
+                <h2 style="font-weight: 700; font-size: 36px; letter-spacing: -1px; margin-bottom: 8px;">Documents</h2>
+                <p style="color: var(--text-secondary); font-size: 16px;">Welcome back, <span id="user-display-name"></span>. Pick up where you left off.</p>
+            </div>
+        </div>
+
+        <div class="doc-grid" id="doc-grid">
+            <!-- Documents will load here -->
+        </div>
+    </div>
+
+    <script>
+        async function checkAuth() {
+            const res = await fetch('/api/me');
+            if (!res.ok) window.location.href = '/login.html';
+            const data = await res.json();
+            document.getElementById('user-display').innerText = data.username;
+            document.getElementById('user-display-name').innerText = data.username;
+        }
+
+        async function loadDocs() {
+            const res = await fetch('/api/docs');
+            const docs = await res.json();
+            const grid = document.getElementById('doc-grid');
+            grid.innerHTML = `
+                <div class="doc-card glass new-doc-card" onclick="createNewDoc()">
+                    <div style="font-size: 32px; color: var(--accent); margin-bottom: 12px;">+</div>
+                    <div class="doc-title" style="color: var(--accent);">Blank Document</div>
+                    <div class="doc-meta">Start typing...</div>
+                </div>
+            `;
+            docs.forEach(doc => {
+                const date = new Date(doc.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                // Simple preview text extraction
+                const preview = doc.content ? doc.content.replace(/<[^>]+>/g, ' ').substring(0, 60) + '...' : 'Empty document';
+                
+                grid.innerHTML += `
+                    <div class="doc-card glass" onclick="window.location.href='/editor.html?id=${doc.id}'">
+                        <div class="doc-format-badge">${doc.format.toUpperCase()}</div>
+                        <div class="doc-title">${doc.title || 'Untitled'}</div>
+                        <div class="doc-preview" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; height: 40px; overflow: hidden;">${preview}</div>
+                        <div class="doc-meta">Edited ${date}</div>
+                    </div>
+                `;
+            });
+        }
+
+        async function createNewDoc() {
+            const res = await fetch('/api/docs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: 'Untitled Document', content: '', format: 'docx' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                window.location.href = '/editor.html?id=' + data.id;
+            }
+        }
+
+        async function logout() {
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.href = '/';
+        }
+
+        checkAuth();
+        loadDocs();
+    </script>
+</body>
+</html>

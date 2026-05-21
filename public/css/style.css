@@ -1,0 +1,413 @@
+:root {
+    --bg-color: #f5f5f7;
+    --card-bg: rgba(255, 255, 255, 0.85);
+    --text-primary: #1d1d1f;
+    --text-secondary: #86868b;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --border: rgba(0, 0, 0, 0.1);
+}
+
+@supports (font: -apple-system-body) and (-webkit-appearance: none) {
+    body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism utility */
+.glass {
+    background: var(--card-bg);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+}
+
+.btn {
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 980px;
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn:hover {
+    background-color: var(--accent-hover);
+}
+.btn:active {
+    transform: scale(0.98);
+}
+.btn.secondary {
+    background-color: rgba(0,0,0,0.05);
+    color: var(--text-primary);
+}
+.btn.secondary:hover {
+    background-color: rgba(0,0,0,0.08);
+}
+
+input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background-color: rgba(255,255,255,0.8);
+    font-size: 16px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input[type="text"]:focus, input[type="password"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.2);
+}
+
+/* Layouts */
+.auth-container {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-card {
+    width: 400px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+}
+
+.auth-card h1 {
+    font-size: 32px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.auth-card p {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.hidden-honeypot {
+    display: none !important;
+}
+
+/* Dashboard */
+.nav {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px 40px;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+.brand {
+    font-weight: 600;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+}
+.dashboard-content {
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 0 20px;
+}
+.doc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    margin-top: 24px;
+}
+.doc-card {
+    padding: 24px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+.new-doc-card {
+    border: 2px dashed rgba(0, 113, 227, 0.3);
+    background: rgba(0, 113, 227, 0.02);
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    box-shadow: none;
+}
+.new-doc-card:hover {
+    border-style: solid;
+    border-color: rgba(0, 113, 227, 0.5);
+    background: rgba(0, 113, 227, 0.05);
+}
+.doc-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 16px 32px rgba(0,0,0,0.08);
+}
+.doc-format-badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.doc-title {
+    font-weight: 600;
+    font-size: 18px;
+    margin-bottom: 8px;
+    line-height: 1.2;
+    padding-right: 40px; /* space for badge */
+}
+.doc-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* Editor layout */
+.editor-layout {
+    display: flex;
+    height: calc(100vh - 72px);
+    overflow: hidden;
+}
+.editor-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+.editor-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.editor-title-input {
+    font-size: 28px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    width: 60%;
+}
+.editor-title-input:focus {
+    box-shadow: none;
+    border-color: transparent;
+}
+.editor-area-container {
+    flex: 1;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.editor-tools {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+}
+
+#editor-content {
+    flex: 1;
+    padding: 40px;
+    outline: none;
+    overflow-y: auto;
+    font-size: 16px;
+}
+#latex-textarea {
+    width: 100%;
+    height: 100%;
+    padding: 40px;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: monospace;
+    font-size: 14px;
+    display: none;
+}
+
+/* AI Sidebar */
+.ai-sidebar {
+    width: 380px;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+}
+.ai-header {
+    padding: 20px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+}
+.ai-chat {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.chat-msg {
+    padding: 12px 16px;
+    border-radius: 14px;
+    max-width: 85%;
+    font-size: 14px;
+}
+.chat-user {
+    background-color: var(--accent);
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+.chat-ai {
+    background-color: rgba(0,0,0,0.05);
+    color: var(--text-primary);
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+}
+.ai-input-area {
+    padding: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+}
+
+.switch-toggles {
+    display: flex;
+    gap: 8px;
+    background: rgba(0,0,0,0.05);
+    padding: 4px;
+    border-radius: 980px;
+}
+.toggle-btn {
+    background: transparent;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 980px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.toggle-btn.active {
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* AI Presets */
+.ai-preset-chip {
+    background: rgba(0, 113, 227, 0.1);
+    color: var(--accent);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+.ai-preset-chip:hover {
+    background: rgba(0, 113, 227, 0.2);
+}
+.ai-preset-chip:active {
+    transform: scale(0.95);
+}
+
+/* Zen Mode */
+.zen-mode .nav { display: none !important; }
+.zen-mode .ai-sidebar { display: none !important; }
+.zen-mode .editor-tools { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+.zen-mode .editor-topbar { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+.zen-mode .editor-main { 
+    border-right: none; 
+    margin: 0 auto; 
+    max-width: 800px;
+    transition: all 0.5s ease;
+}
+.zen-mode .editor-layout {
+    height: 100vh;
+}
+.zen-mode .editor-area-container {
+    padding-top: 40px;
+}
+
+/* Zen Mode Additions */
+.zen-mode .top-nav,
+.zen-mode .editor-tools,
+.zen-mode .ai-sidebar {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
+}
+
+.zen-mode .editor-main {
+    margin: 0 auto;
+    width: 100%;
+    max-width: 800px;
+    transition: all 0.5s ease;
+}
+
+body {
+    transition: background-color 0.5s ease;
+}
+
+.zen-mode {
+    background-color: #fafafa;
+}
+
+#exit-zen-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    background: rgba(0,0,0,0.5);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: none;
+    transition: background 0.3s;
+}
+
+#exit-zen-btn:hover {
+    background: rgba(0,0,0,0.8);
+}
+
+.ai-preset-chip {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.ai-preset-chip:hover {
+    background: var(--primary-color);
+    color: white;
+}

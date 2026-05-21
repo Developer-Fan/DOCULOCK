@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuLock - Editor</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+</head>
+<body>
+    <!-- Float Exit Zen button -->
+    <div id="exit-zen-btn" style="display:none; position: fixed; top: 20px; right: 20px; z-index: 10000;" class="btn secondary glass" onclick="toggleZen()">Exit Zen Mode</div>
+
+    <nav class="nav glass" style="padding: 12px 24px; border-radius: 0 0 0 18px;">
+        <div class="brand" style="cursor: pointer;" onclick="window.location.href='/dashboard.html'">‹ Back</div>
+        <div style="display: flex; gap: 12px;">
+            <div class="switch-toggles">
+                <button class="toggle-btn active" id="btn-docx" onclick="switchFormat('docx')">DOCX</button>
+                <button class="toggle-btn" id="btn-tex" onclick="switchFormat('tex')">LaTeX</button>
+            </div>
+            <button class="btn secondary" onclick="saveDoc()">Save</button>
+            <button class="btn secondary" onclick="showVersions()">Versions</button>
+            <button class="btn secondary" onclick="showCitations()">Cite</button>
+            <button class="btn secondary" onclick="toggleZen()">Zen</button>
+            <div class="export-dropdown" style="position: relative; display: inline-block;">
+                <button class="btn secondary" onclick="document.getElementById('export-menu').style.display='block'">Export ▾</button>
+                <div id="export-menu" class="glass" style="display:none; position: absolute; right: 0; top: 40px; border-radius: 8px; overflow: hidden; min-width: 120px;">
+                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('docx')">DOCX</div>
+                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('pdf')">PDF</div>
+                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('tex')">LaTeX</div>
+                    <div style="padding: 10px; cursor: pointer;" onclick="exportDoc('html')">HTML</div>
+                </div>
+            </div>
+            <button class="btn secondary" style="color: #ff3b30;" onclick="deleteDoc()">Delete</button>
+            <button class="btn secondary" onclick="document.getElementById('settings-modal').style.display='block'">⚙️ Settings</button>
+        </div>
+    </nav>
+
+    <div class="editor-layout">
+        <div class="editor-main">
+            <div class="editor-topbar">
+                <input type="text" id="doc-title" class="editor-title-input" placeholder="Untitled Document" onblur="saveDoc()">
+                <span id="save-status" style="color: var(--text-secondary); font-size: 13px;"></span>
+            </div>
+            
+            <div class="editor-area-container">
+                <div class="editor-tools" id="editor-tools">
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('bold')"><b>B</b></button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('italic')"><i>I</i></button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('underline')"><u>U</u></button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('formatBlock', 'H1')">H1</button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('formatBlock', 'H2')">H2</button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('insertUnorderedList')">• List</button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="renderMath()">𝚺 Math</button>
+                </div>
+                <div id="editor-content" contenteditable="true" oninput="queueSave()"></div>
+                <textarea id="latex-textarea" placeholder="% Enter LaTeX here..." oninput="queueSave()"></textarea>
+            </div>
+        </div>
+
+        <div class="ai-sidebar">
+            <div class="ai-header">
+                Llama 3 Assistant
+            </div>
+            <div class="ai-chat" id="chat-box">
+                <div class="chat-msg chat-ai">Hi! I'm Llama 3. I can read your document and help you write, edit, or brainstorm.</div>
+            </div>
+            <div class="ai-presets" style="padding: 10px; display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border);">
+                <span class="ai-preset-chip" onclick="applyPreset('Academic')">Academic</span>
+                <span class="ai-preset-chip" onclick="applyPreset('Creative')">Creative</span>
+                <span class="ai-preset-chip" onclick="applyPreset('Concise')">Concise</span>
+                <span class="ai-preset-chip" onclick="applyPreset('Expand')">Expand</span>
+            </div>
+            <div class="ai-input-area">
+                <input type="text" id="ai-input" placeholder="Ask AI something..." onkeypress="if(event.key==='Enter') sendAI()">
+                <button class="btn" style="padding: 10px 16px;" onclick="sendAI()">↑</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="versions-modal" class="glass" style="display:none; position: fixed; top: 10%; left: 30%; right: 30%; bottom: 10%; z-index: 1000; padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2>Version History</h2>
+            <button class="btn secondary" onclick="document.getElementById('versions-modal').style.display='none'">Close</button>
+        </div>
+        <div id="versions-list"></div>
+    </div>
+
+    <div id="cite-modal" class="glass" style="display:none; position: fixed; top: 20%; left: 35%; right: 35%; z-index: 1000; padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h2>Citation Manager</h2>
+            <button class="btn secondary" onclick="document.getElementById('cite-modal').style.display='none'">Close</button>
+        </div>
+        <input type="text" id="cite-input" placeholder="Search for a paper or concept..." style="width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <button class="btn" onclick="fetchCitation()" style="width: 100%; margin-bottom: 15px;">Generate BibTeX</button>
+        <textarea id="cite-result" style="width: 100%; height: 120px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); font-family: monospace; display: none;"></textarea>
+        <button class="btn secondary" id="cite-insert-btn" style="width: 100%; margin-top: 10px; display: none;" onclick="insertCitation()">Insert into LaTeX</button>
+    </div>
+
+    <script src="/js/editor.js"></script>
+</body>
+</html>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal">
+        <h3>Settings</h3>
+        <p style="margin-bottom: 5px;">Username: <strong>User (Cannot change at this time)</strong></p>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">AI Model: Llama 3.3 70B (Groq)</p>
+        
+        <div style="display:flex; justify-content:flex-end;">
+            <button class="btn secondary" onclick="document.getElementById('settings-modal').style.display='none'">Close</button>
+        </div>
+    </div>
+</div>

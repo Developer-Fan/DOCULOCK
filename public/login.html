@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuLock - Welcome</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card glass" id="auth-panel">
+            <h1 id="auth-title">Sign In</h1>
+            <p id="auth-subtitle">Access your documents securely.</p>
+
+            <form id="auth-form" onsubmit="event.preventDefault(); submitAuth();">
+                <!-- Honeypot field - real users won't see this -->
+                <input type="text" id="honeypot" class="hidden-honeypot" autocomplete="off" tabindex="-1">
+                
+                <div class="form-group">
+                    <input type="text" id="username" placeholder="Username" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="password" placeholder="Password" required>
+                </div>
+                <div class="form-group" id="confirm-password-group" style="display: none;">
+                    <input type="password" id="confirmPassword" placeholder="Confirm Password">
+                </div>
+                
+                <button type="submit" class="btn" style="width: 100%; margin-top: 8px;" id="auth-btn">Sign In</button>
+            </form>
+
+            <p style="margin-top: 24px; font-size: 14px;">
+                <span id="toggle-text">Don't have an account?</span> 
+                <a href="#" id="toggle-link" style="color: var(--accent); text-decoration: none;" onclick="toggleAuth(event)">Create one</a>
+            </p>
+            <div id="error-msg" style="color: #ff3b30; margin-top: 16px; font-size: 14px;"></div>
+        </div>
+    </div>
+
+    <script src="/js/auth.js"></script>
+</body>
+</html>
