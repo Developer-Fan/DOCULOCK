@@ -103,9 +103,15 @@ function createTables(db) {
 
 function persistDatabase(db) {
     try {
-        fs.writeFileSync(dbPath, Buffer.from(db.export()));
+        const dir = path.dirname(dbPath);
+        if (dir && dir !== '/') fs.mkdirSync(dir, { recursive: true });
+        const data = Buffer.from(db.export());
+        const tmpPath = dbPath + '.tmp';
+        fs.writeFileSync(tmpPath, data);
+        fs.renameSync(tmpPath, dbPath);
+        if (!fs.existsSync(dbPath)) throw new Error('Failed to persist database file after write/rename');
     } catch (err) {
-        console.error('Error saving database:', err.message);
+        console.error('Error saving database to', dbPath, ':', err && err.message ? err.message : err);
     }
 }
 
@@ -128,6 +134,13 @@ const ready = initSqlJs({
     console.error('Failed to initialize sql.js database:', err.message);
     throw err;
 });
+
+// If the file doesn't exist after initialization, warn explicitly so deploy logs show it
+ready.then(() => {
+    if (!fs.existsSync(dbPath)) {
+        console.warn('Warning: database file does not exist at', dbPath, '— running with in-memory DB until persisted.');
+    }
+}).catch(() => {});
 
 function bindParams(statement, params = []) {
     if (Array.isArray(params)) {
