@@ -16,35 +16,54 @@
     <nav class="nav glass" style="padding: 12px 24px; border-radius: 0 0 0 18px;">
         <div class="brand" style="cursor: pointer;" onclick="window.location.href='/dashboard.html'">‹ Back</div>
         <div style="display: flex; gap: 12px;">
-            <div class="switch-toggles">
+                <div class="switch-toggles">
                 <button class="toggle-btn active" id="btn-docx" onclick="switchFormat('docx')">DOCX</button>
                 <button class="toggle-btn" id="btn-tex" onclick="switchFormat('tex')">LaTeX</button>
             </div>
-            <button class="btn secondary" onclick="saveDoc()">Save</button>
-            <button class="btn secondary" onclick="showVersions()">Versions</button>
-            <button class="btn secondary" onclick="showCitations()">Cite</button>
-            <button class="btn secondary" onclick="toggleZen()">Zen</button>
-            <div class="export-dropdown" style="position: relative; display: inline-block;">
-                <button class="btn secondary" onclick="document.getElementById('export-menu').style.display='block'">Export ▾</button>
-                <div id="export-menu" class="glass" style="display:none; position: absolute; right: 0; top: 40px; border-radius: 8px; overflow: hidden; min-width: 120px;">
-                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('docx')">DOCX</div>
-                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('pdf')">PDF</div>
-                    <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="exportDoc('tex')">LaTeX</div>
-                    <div style="padding: 10px; cursor: pointer;" onclick="exportDoc('html')">HTML</div>
+            <div class="editor-menu-wrap">
+                <button class="btn secondary editor-menu-trigger" onclick="toggleEditorMenu()">Menu ▾</button>
+                <div id="editor-menu" class="glass editor-menu-panel" style="display:none;">
+                    <button class="menu-item" onclick="saveDoc(); closeEditorMenu()">Save</button>
+                    <button class="menu-item" onclick="showVersions(); closeEditorMenu()">Versions</button>
+                    <button class="menu-item" onclick="showCitations(); closeEditorMenu()">Cite</button>
+                    <button class="menu-item" onclick="showShare(); closeEditorMenu()">Share</button>
+                    <button class="menu-item" onclick="toggleCollaboratorChat(); closeEditorMenu()">Collaborators</button>
+                    <button class="menu-item" onclick="toggleZen(); closeEditorMenu()">Zen</button>
+                    <button class="menu-item" onclick="toggleOutline(); closeEditorMenu()">Outline</button>
+                    <button class="menu-item" onclick="showAccessibility(); closeEditorMenu()">A11y</button>
+                    <button class="menu-item" onclick="showKeyboardShortcuts(); closeEditorMenu()">Help</button>
+                    <div class="menu-divider"></div>
+                    <div class="menu-label">Export</div>
+                    <button class="menu-item" onclick="exportDoc('docx'); closeEditorMenu()">DOCX</button>
+                    <button class="menu-item" onclick="exportDoc('pdf'); closeEditorMenu()">PDF</button>
+                    <button class="menu-item" onclick="exportDoc('tex'); closeEditorMenu()">LaTeX</button>
+                    <button class="menu-item" onclick="exportDoc('html'); closeEditorMenu()">HTML</button>
                 </div>
             </div>
-            <button class="btn secondary" style="color: #ff3b30;" onclick="deleteDoc()">Delete</button>
-            <button class="btn secondary" onclick="document.getElementById('settings-modal').style.display='block'">⚙️ Settings</button>
         </div>
     </nav>
 
     <div class="editor-layout">
-        <div class="editor-main">
-            <div class="editor-topbar">
-                <input type="text" id="doc-title" class="editor-title-input" placeholder="Untitled Document" onblur="saveDoc()">
-                <span id="save-status" style="color: var(--text-secondary); font-size: 13px;"></span>
+        <div id="outline-pane" class="outline-pane" style="display: none;">
+            <div class="outline-header">
+                <h3 style="margin: 0; font-size: 16px;">Outline</h3>
+                <button class="btn secondary" style="padding: 4px 8px; font-size: 12px;" onclick="toggleOutline()">×</button>
             </div>
-            
+            <div id="outline-list" class="outline-list"></div>
+        </div>
+
+        <div class="editor-main">
+    <div class="editor-topbar">
+                <input type="text" id="doc-title" class="editor-title-input" placeholder="Untitled Document" onblur="saveDoc()">
+                <div style="display: flex; gap: 16px; align-items: center;">
+                        <span id="collab-count" style="font-size: 12px; color: var(--text-secondary);">0 collaborators</span>
+                        <span id="collab-status" style="font-size: 12px; color: var(--text-secondary);">Offline</span>
+                    <span id="doc-stats" style="font-size: 12px; color: var(--text-secondary);">0 words</span>
+                    <span id="reading-time" style="font-size: 12px; color: var(--text-secondary);">0 min read</span>
+                    <span id="save-status" style="color: var(--text-secondary); font-size: 13px;"></span>
+                </div>
+            </div>
+
             <div class="editor-area-container">
                 <div class="editor-tools" id="editor-tools">
                     <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('bold')"><b>B</b></button>
@@ -54,7 +73,20 @@
                     <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('formatBlock', 'H2')">H2</button>
                     <button class="btn secondary" style="padding: 6px 12px;" onclick="execCmd('insertUnorderedList')">• List</button>
                     <button class="btn secondary" style="padding: 6px 12px;" onclick="renderMath()">𝚺 Math</button>
+                    <div style="width: 1px; background: var(--border); margin: 0 8px;"></div>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="checkGrammar()">✓ Grammar</button>
+                    <button class="btn secondary" style="padding: 6px 12px;" onclick="speakContent()">🔊 Speak</button>
+                    <div class="template-dropdown" style="position: relative; display: inline-block;">
+                        <button class="btn secondary" style="padding: 6px 12px;" onclick="document.getElementById('template-menu').style.display='block'">📋 Templates</button>
+                        <div id="template-menu" class="glass" style="display:none; position: absolute; top: 40px; left: 0; border-radius: 8px; overflow: hidden; min-width: 150px; z-index: 100;">
+                            <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="applyTemplate('Research Paper')">Research Paper</div>
+                            <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="applyTemplate('Essay')">Essay</div>
+                            <div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border);" onclick="applyTemplate('Meeting Notes')">Meeting Notes</div>
+                            <div style="padding: 10px; cursor: pointer;" onclick="applyTemplate('Letter')">Letter</div>
+                        </div>
+                    </div>
                 </div>
+                <!-- Whiteboard removed -->
                 <div id="editor-content" contenteditable="true" oninput="queueSave()"></div>
                 <textarea id="latex-textarea" placeholder="% Enter LaTeX here..." oninput="queueSave()"></textarea>
             </div>
@@ -63,6 +95,12 @@
         <div class="ai-sidebar">
             <div class="ai-header">
                 Llama 3 Assistant
+            </div>
+            <div class="ai-presets" style="padding: 10px; display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border);">
+                <span class="ai-preset-chip" onclick="setAIPersona('Editor')">Editor</span>
+                <span class="ai-preset-chip" onclick="setAIPersona('Brainstormer')">Brainstorm</span>
+                <span class="ai-preset-chip" onclick="setAIPersona('Critic')">Critic</span>
+                <span class="ai-preset-chip" onclick="setAIPersona('Summarizer')">Summarize</span>
             </div>
             <div class="ai-chat" id="chat-box">
                 <div class="chat-msg chat-ai">Hi! I'm Llama 3. I can read your document and help you write, edit, or brainstorm.</div>
@@ -100,19 +138,143 @@
         <button class="btn secondary" id="cite-insert-btn" style="width: 100%; margin-top: 10px; display: none;" onclick="insertCitation()">Insert into LaTeX</button>
     </div>
 
+    <div id="share-modal" class="glass" style="display:none; position: fixed; top: 14%; left: 28%; right: 28%; z-index: 1000; padding: 24px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-height: 78vh; overflow: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px;">
+            <h2 style="margin: 0;">Share & Collaborate</h2>
+            <button class="btn secondary" onclick="closeShare()">Close</button>
+        </div>
+        <p style="margin-bottom: 12px; color: var(--text-secondary);">Create a share link, then invite collaborators to view or edit this document in realtime.</p>
+        <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+            <select id="share-permission" style="padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0,0,0,0.02); color: var(--text-primary);">
+                <option value="edit">Can edit</option>
+                <option value="view">View only</option>
+            </select>
+            <button class="btn" onclick="createShareLink()">Create Link</button>
+            <button class="btn secondary" onclick="refreshShareLinks()">Refresh</button>
+            <button class="btn secondary" onclick="toggleCollaboratorChat(true)">Open Collaborator Chat</button>
+        </div>
+        <div style="display: grid; gap: 10px; margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.02);">
+            <div style="font-weight: 600; font-size: 14px;">Invite by username</div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <input type="text" id="invite-username" placeholder="Collaborator username" style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+                <select id="invite-permission" style="padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0,0,0,0.02); color: var(--text-primary);">
+                    <option value="edit">Can edit</option>
+                    <option value="view">View only</option>
+                </select>
+                <button class="btn secondary" onclick="inviteCollaboratorByUsername()">Invite</button>
+            </div>
+            <p style="margin: 0; color: var(--text-secondary); font-size: 13px;">This creates a direct shared permission for an existing username.</p>
+        </div>
+        <input type="text" id="share-link-output" readonly placeholder="Generated share link will appear here" style="width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border);">
+        <button class="btn secondary" style="width: 100%; margin-bottom: 16px;" onclick="copyShareLink()">Copy Link</button>
+        <div id="share-links-list" style="display: grid; gap: 8px;">
+            <p style="color: var(--text-secondary); font-size: 13px;">No share links loaded yet.</p>
+        </div>
+    </div>
+
+    <div id="collab-chat-drawer" class="collab-chat-drawer glass" aria-hidden="true">
+        <div class="collab-chat-header">
+            <div>
+                <div style="font-weight: 600; font-size: 14px;">Collaborator Chat</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Room messages for everyone in this document.</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="collab-chat-count" class="collab-chat-count">0</span>
+                <button class="btn secondary" style="padding: 6px 10px; font-size: 12px;" onclick="toggleCollaboratorChat(false)">Close</button>
+            </div>
+        </div>
+        <div id="collab-chat-list" class="collab-chat-list"></div>
+        <div class="collab-chat-input">
+            <input type="text" id="collab-chat-input" placeholder="Message collaborators..." onkeypress="if(event.key==='Enter') sendCollaboratorChat()">
+            <button class="btn" style="padding: 10px 16px;" onclick="sendCollaboratorChat()">Send</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script src="/js/editor.js"></script>
 </body>
 </html>
 
-<!-- Settings Modal -->
-<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this) this.style.display='none'">
+<!-- Find & Replace Modal -->
+<div class="modal-overlay" id="find-replace-modal" onclick="if(event.target===this) this.style.display='none'">
     <div class="modal">
-        <h3>Settings</h3>
-        <p style="margin-bottom: 5px;">Username: <strong>User (Cannot change at this time)</strong></p>
-        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">AI Model: Llama 3.3 70B (Groq)</p>
-        
-        <div style="display:flex; justify-content:flex-end;">
-            <button class="btn secondary" onclick="document.getElementById('settings-modal').style.display='none'">Close</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3>Find & Replace</h3>
+            <button class="btn secondary" style="padding: 6px 12px;" onclick="document.getElementById('find-replace-modal').style.display='none'">Close</button>
+        </div>
+        <input type="text" id="find-input" placeholder="Find..." style="width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border);">
+        <input type="text" id="replace-input" placeholder="Replace with..." style="width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border);">
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="btn secondary" style="flex: 1;" onclick="findNext()">Find Next</button>
+            <button class="btn secondary" style="flex: 1;" onclick="replaceCurrent()">Replace</button>
+            <button class="btn secondary" style="flex: 1;" onclick="replaceAll()">Replace All</button>
+        </div>
+        <div id="find-results" style="font-size: 12px; color: var(--text-secondary);"></div>
+    </div>
+</div>
+
+<!-- Accessibility Modal -->
+<div class="modal-overlay" id="accessibility-modal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3>Accessibility</h3>
+            <button class="btn secondary" style="padding: 6px 12px;" onclick="document.getElementById('accessibility-modal').style.display='none'">Close</button>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Font Size: <strong id="font-size-value">100%</strong></label>
+            <input type="range" id="font-size-slider" min="80" max="150" value="100" style="width: 100%; cursor: pointer;" oninput="updateFontSize(this.value)">
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Line Height: <strong id="line-height-value">1.5</strong></label>
+            <input type="range" id="line-height-slider" min="1" max="2.5" step="0.1" value="1.5" style="width: 100%; cursor: pointer;" oninput="updateLineHeight(this.value)">
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                <input type="checkbox" id="high-contrast-toggle" onchange="toggleHighContrast()">
+                <span>High Contrast Mode</span>
+            </label>
+        </div>
+
+        <button class="btn secondary" style="width: 100%;" onclick="resetAccessibility()">Reset to Defaults</button>
+    </div>
+</div>
+
+<!-- Keyboard Shortcuts Modal -->
+<div class="modal-overlay" id="shortcuts-modal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3>Keyboard Shortcuts</h3>
+            <button class="btn secondary" style="padding: 6px 12px;" onclick="document.getElementById('shortcuts-modal').style.display='none'">Close</button>
+        </div>
+        <div id="shortcuts-list" style="max-height: 400px; overflow-y: auto;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div><kbd>Ctrl+S</kbd> / <kbd>Cmd+S</kbd></div>
+                <div style="color: var(--text-secondary);">Save Document</div>
+
+                <div><kbd>Ctrl+B</kbd> / <kbd>Cmd+B</kbd></div>
+                <div style="color: var(--text-secondary);">Bold</div>
+
+                <div><kbd>Ctrl+I</kbd> / <kbd>Cmd+I</kbd></div>
+                <div style="color: var(--text-secondary);">Italic</div>
+
+                <div><kbd>Ctrl+U</kbd> / <kbd>Cmd+U</kbd></div>
+                <div style="color: var(--text-secondary);">Underline</div>
+
+                <div><kbd>Ctrl+F</kbd> / <kbd>Cmd+F</kbd></div>
+                <div style="color: var(--text-secondary);">Find & Replace</div>
+
+                <div><kbd>Tab</kbd></div>
+                <div style="color: var(--text-secondary);">Accept Autocomplete</div>
+
+                <div><kbd>Ctrl+Shift+Z</kbd> / <kbd>Cmd+Shift+Z</kbd></div>
+                <div style="color: var(--text-secondary);">Zen Mode</div>
+
+                <div><kbd>Escape</kbd></div>
+                <div style="color: var(--text-secondary);">Close Modal / Exit Zen</div>
+            </div>
         </div>
     </div>
 </div>

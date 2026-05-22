@@ -1,9 +1,12 @@
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+const http = require('http');
 const path = require('path');
 const db = require('./database');
 const Groq = require('groq-sdk');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 const app = express();
@@ -13,15 +16,203 @@ const PORT = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE";
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(session({
+const sessionMiddleware = session({
     secret: 'apple-style-doculock-secret-key-123!',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false } // Set to true if deploying with HTTPS
-}));
+    cookie: { secure: false }
+});
+
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: true,
+        credentials: true
+    }
+});
+
+io.use((socket, next) => sessionMiddleware(socket.request, {}, next));
+
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+});
+
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+});
+
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+        if (err) return reject(err);
+        resolve(this);
+    });
+});
+
+const activeCollaborators = new Map();
+
+function buildShareUrl(token, req) {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    return `${baseUrl}/editor.html?share=${token}`;
+}
+
+function colorForIdentifier(identifier) {
+    const palette = ['#4f8cff', '#ff6b6b', '#20c997', '#f59f00', '#845ef7', '#15aabf'];
+    let hash = 0;
+    for (let index = 0; index < identifier.length; index++) {
+        hash = (hash * 31 + identifier.charCodeAt(index)) >>> 0;
+    }
+    return palette[hash % palette.length];
+}
+
+function getRoomName(documentId) {
+    return `document:${documentId}`;
+}
+
+function getCollaboratorList(documentId) {
+    const room = activeCollaborators.get(Number(documentId));
+    return room ? Array.from(room.values()) : [];
+}
+
+function normalizeBoolean(value, fallback = false) {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+    return fallback;
+}
+
+function canEditWithPermission(permissionLevel) {
+    return ['edit', 'admin', 'owner'].includes(permissionLevel);
+}
+
+async function grantDocumentPermission(documentId, userId, permissionLevel, grantedBy, sourceShareLinkId = null) {
+    if (!documentId || !userId) return;
+
+    const existing = await dbGet(
+        'SELECT id FROM document_permissions WHERE document_id = ? AND user_id = ?',
+        [documentId, userId]
+    );
+
+    if (existing) {
+        await dbRun(
+            'UPDATE document_permissions SET permission_level = ?, granted_by = ?, source_share_link_id = ?, granted_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [permissionLevel, grantedBy || null, sourceShareLinkId, existing.id]
+        );
+        return;
+    }
+
+    await dbRun(
+        'INSERT INTO document_permissions (document_id, user_id, permission_level, granted_by, source_share_link_id) VALUES (?, ?, ?, ?, ?)',
+        [documentId, userId, permissionLevel, grantedBy || null, sourceShareLinkId]
+    );
+}
+
+async function getPermissionAccess(documentId, userId) {
+    if (!userId) return null;
+
+    return dbGet(
+        `SELECT document_permissions.permission_level, document_permissions.source_share_link_id, share_links.id AS active_share_link_id, share_links.expires_at
+         FROM document_permissions
+         LEFT JOIN share_links ON share_links.id = document_permissions.source_share_link_id
+         WHERE document_permissions.document_id = ? AND document_permissions.user_id = ?`,
+        [documentId, userId]
+    );
+}
+
+async function resolveDocumentAccess(documentId, userId = null, shareToken = null) {
+    const document = await dbGet('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!document) return null;
+
+    if (userId && Number(document.user_id) === Number(userId)) {
+        return {
+            document,
+            accessType: 'owner',
+            permissionLevel: 'owner',
+            canEdit: true
+        };
+    }
+
+    const sharedPermission = await getPermissionAccess(documentId, userId);
+    if (sharedPermission) {
+        const activeShareLink = sharedPermission.active_share_link_id && (!sharedPermission.expires_at || new Date(sharedPermission.expires_at) >= new Date());
+        if (!sharedPermission.source_share_link_id || activeShareLink) {
+            return {
+                document,
+                accessType: 'shared',
+                permissionLevel: sharedPermission.permission_level || 'view',
+                canEdit: canEditWithPermission(sharedPermission.permission_level)
+            };
+        }
+    }
+
+    if (shareToken) {
+        const shareLink = await dbGet(
+            'SELECT * FROM share_links WHERE token = ? AND document_id = ?',
+            [shareToken, documentId]
+        );
+
+        if (shareLink) {
+            const expired = shareLink.expires_at && new Date(shareLink.expires_at) < new Date();
+            if (!expired) {
+                return {
+                    document,
+                    shareLink,
+                    accessType: 'share',
+                    permissionLevel: shareLink.permission_level || 'view',
+                    canEdit: canEditWithPermission(shareLink.permission_level)
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+async function persistCollaborativeUpdate(documentId, title, content, format) {
+    const normalizedFormat = ['docx', 'tex', 'board'].includes(format) ? format : 'docx';
+    await dbRun(
+        'UPDATE documents SET title = ?, content = ?, format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [title, content, normalizedFormat, documentId]
+    );
+}
+
+function updatePresence(documentId) {
+    io.to(getRoomName(documentId)).emit('collab:presence', {
+        documentId: Number(documentId),
+        collaborators: getCollaboratorList(documentId),
+        count: getCollaboratorList(documentId).length
+    });
+}
+
+function upsertCollaborator(documentId, socketId, patch) {
+    const key = Number(documentId);
+    const room = activeCollaborators.get(key) || new Map();
+    const existing = room.get(socketId) || {};
+    room.set(socketId, {
+        ...existing,
+        ...patch,
+        socketId,
+        documentId: key
+    });
+    activeCollaborators.set(key, room);
+    updatePresence(key);
+}
+
+function removeCollaborator(documentId, socketId) {
+    const key = Number(documentId);
+    const room = activeCollaborators.get(key);
+    if (!room) return;
+    room.delete(socketId);
+    if (room.size === 0) {
+        activeCollaborators.delete(key);
+    }
+    updatePresence(key);
+}
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(sessionMiddleware);
 
 // --- Middleware: Verify Auth ---
 function isAuthenticated(req, res, next) {
@@ -34,7 +225,7 @@ function isAuthenticated(req, res, next) {
 // --- Auth Routes ---
 app.post('/api/register', async (req, res) => {
     const { username, password, confirmPassword, honeypot } = req.body;
-    
+
     // Anti-bot: If honeypot is filled, it's a bot
     if (honeypot) return res.status(400).json({ error: 'Bot detected.' });
     if (!username || !password || !confirmPassword) return res.status(400).json({ error: 'Missing fields.' });
@@ -56,7 +247,7 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', (req, res) => {
     const { username, password, honeypot } = req.body;
-    
+
     // Anti-bot feature
     if (honeypot) return res.status(400).json({ error: 'Bot detected.' });
 
@@ -94,28 +285,40 @@ app.get('/api/docs', isAuthenticated, (req, res) => {
 
 app.post('/api/docs', isAuthenticated, (req, res) => {
     const { title, content, format } = req.body;
-    db.run(`INSERT INTO documents (user_id, title, content, format) VALUES (?, ?, ?, ?)`, 
-    [req.session.userId, title || 'Untitled', content || '', format || 'docx'], function(err) {
+    const normalizedFormat = ['docx', 'tex', 'board'].includes(format) ? format : 'docx';
+    db.run(`INSERT INTO documents (user_id, title, content, format) VALUES (?, ?, ?, ?)`,
+    [req.session.userId, title || 'Untitled', content || '', normalizedFormat], function(err) {
         if (err) return res.status(500).json({ error: 'Database error.' });
         res.json({ id: this.lastID, success: true });
     });
 });
 
 app.get('/api/docs/:id', isAuthenticated, (req, res) => {
-    db.get(`SELECT * FROM documents WHERE id = ? AND user_id = ?`, [req.params.id, req.session.userId], (err, row) => {
-        if (err) return res.status(500).json({ error: 'Database error.' });
-        if (!row) return res.status(404).json({ error: 'Not found.' });
-        res.json(row);
-    });
+    (async () => {
+        try {
+            const access = await resolveDocumentAccess(req.params.id, req.session.userId);
+            if (!access || !access.document) return res.status(404).json({ error: 'Not found.' });
+            res.json(access.document);
+        } catch (err) {
+            res.status(500).json({ error: 'Database error.' });
+        }
+    })();
 });
 
 app.put('/api/docs/:id', isAuthenticated, (req, res) => {
-    const { title, content, format } = req.body;
-    db.run(`UPDATE documents SET title = ?, content = ?, format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`,
-    [title, content, format, req.params.id, req.session.userId], function(err) {
-        if (err) return res.status(500).json({ error: 'Database error.' });
-        res.json({ success: true });
-    });
+    (async () => {
+        const { title, content, format } = req.body;
+        try {
+            const access = await resolveDocumentAccess(req.params.id, req.session.userId);
+            if (!access || !access.document) return res.status(404).json({ error: 'Not found.' });
+            if (!access.canEdit) return res.status(403).json({ error: 'Forbidden.' });
+
+            await persistCollaborativeUpdate(req.params.id, title, content, format);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: 'Database error.' });
+        }
+    })();
 });
 
 app.delete('/api/docs/:id', isAuthenticated, (req, res) => {
@@ -125,22 +328,316 @@ app.delete('/api/docs/:id', isAuthenticated, (req, res) => {
     });
 });
 
+app.get('/api/shared-docs', isAuthenticated, async (req, res) => {
+    try {
+        const rows = await dbAll(
+            `SELECT DISTINCT documents.id, documents.title, documents.content, documents.format, documents.updated_at,
+                    document_permissions.permission_level,
+                    users.username AS owner_username
+             FROM document_permissions
+             INNER JOIN documents ON documents.id = document_permissions.document_id
+             INNER JOIN users ON users.id = documents.user_id
+             LEFT JOIN share_links ON share_links.id = document_permissions.source_share_link_id
+             WHERE document_permissions.user_id = ?
+               AND documents.user_id != ?
+               AND (
+                    document_permissions.source_share_link_id IS NULL
+                    OR (
+                        share_links.id IS NOT NULL
+                        AND (share_links.expires_at IS NULL OR share_links.expires_at > CURRENT_TIMESTAMP)
+                    )
+               )
+             ORDER BY documents.updated_at DESC`,
+            [req.session.userId, req.session.userId]
+        );
+
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.get('/api/docs/:id/share-links', isAuthenticated, async (req, res) => {
+    try {
+        const document = await dbGet('SELECT id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden' });
+
+        const links = await dbAll(
+            'SELECT id, token, permission_level, created_at, expires_at, access_count, last_accessed FROM share_links WHERE document_id = ? ORDER BY created_at DESC',
+            [req.params.id]
+        );
+
+        res.json(links);
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.get('/api/docs/:id/share-info', isAuthenticated, async (req, res) => {
+    try {
+        const document = await dbGet('SELECT id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden' });
+
+        const links = await dbAll(
+            `SELECT id, token, permission_level, created_at, expires_at, access_count, last_accessed
+             FROM share_links
+             WHERE document_id = ?
+             ORDER BY created_at DESC`,
+            [req.params.id]
+        );
+
+        const collaborators = await dbAll(
+            `SELECT document_permissions.id,
+                    document_permissions.permission_level,
+                    document_permissions.granted_at,
+                    document_permissions.source_share_link_id,
+                    users.username,
+                    share_links.token AS share_token,
+                    share_links.expires_at AS share_expires_at
+             FROM document_permissions
+             INNER JOIN users ON users.id = document_permissions.user_id
+             LEFT JOIN share_links ON share_links.id = document_permissions.source_share_link_id
+             WHERE document_permissions.document_id = ?
+             ORDER BY document_permissions.permission_level DESC, users.username COLLATE NOCASE ASC`,
+            [req.params.id]
+        );
+
+        res.json({ links, collaborators });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.post('/api/docs/:id/share-links', isAuthenticated, async (req, res) => {
+    const { permissionLevel = 'edit', expiresAt = null } = req.body;
+    try {
+        const document = await dbGet('SELECT id, user_id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden' });
+
+        const normalizedPermission = permissionLevel === 'view' ? 'view' : 'edit';
+        const token = crypto.randomBytes(16).toString('hex');
+
+        await dbRun(
+            'INSERT INTO share_links (document_id, token, permission_level, created_by, expires_at) VALUES (?, ?, ?, ?, ?)',
+            [req.params.id, token, normalizedPermission, req.session.userId, expiresAt || null]
+        );
+
+        res.json({
+            success: true,
+            token,
+            permissionLevel: normalizedPermission,
+            url: buildShareUrl(token, req)
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.delete('/api/share-links/:linkId', isAuthenticated, async (req, res) => {
+    try {
+        const link = await dbGet(
+            `SELECT share_links.id, share_links.document_id
+             FROM share_links
+             JOIN documents ON documents.id = share_links.document_id
+             WHERE share_links.id = ? AND documents.user_id = ?`,
+            [req.params.linkId, req.session.userId]
+        );
+
+        if (!link) return res.status(403).json({ error: 'Forbidden' });
+
+        await dbRun('DELETE FROM share_links WHERE id = ?', [req.params.linkId]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.get('/api/share/:token', async (req, res) => {
+    try {
+        const shareLink = await dbGet('SELECT * FROM share_links WHERE token = ?', [req.params.token]);
+        if (!shareLink) return res.status(404).json({ error: 'Share link not found.' });
+
+        const expired = shareLink.expires_at && new Date(shareLink.expires_at) < new Date();
+        if (expired) return res.status(410).json({ error: 'Share link expired.' });
+
+        const document = await dbGet('SELECT id, title, content, format, updated_at FROM documents WHERE id = ?', [shareLink.document_id]);
+        if (!document) return res.status(404).json({ error: 'Document not found.' });
+
+        if (req.session.userId) {
+            await grantDocumentPermission(
+                shareLink.document_id,
+                req.session.userId,
+                shareLink.permission_level || 'view',
+                shareLink.created_by,
+                shareLink.id
+            );
+        }
+
+        await dbRun(
+            'UPDATE share_links SET access_count = access_count + 1, last_accessed = CURRENT_TIMESTAMP WHERE id = ?',
+            [shareLink.id]
+        );
+
+        res.json({
+            document,
+            shareToken: req.params.token,
+            permissionLevel: shareLink.permission_level || 'view',
+            canEdit: shareLink.permission_level === 'edit'
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.put('/api/share/:token', async (req, res) => {
+    const { title, content, format } = req.body;
+    try {
+        const shareLink = await dbGet('SELECT * FROM share_links WHERE token = ?', [req.params.token]);
+        if (!shareLink) return res.status(404).json({ error: 'Share link not found.' });
+
+        const expired = shareLink.expires_at && new Date(shareLink.expires_at) < new Date();
+        if (expired) return res.status(410).json({ error: 'Share link expired.' });
+
+        if (shareLink.permission_level !== 'edit') {
+            return res.status(403).json({ error: 'This share link is view-only.' });
+        }
+
+        await persistCollaborativeUpdate(shareLink.document_id, title, content, format);
+        await dbRun(
+            'UPDATE share_links SET access_count = access_count + 1, last_accessed = CURRENT_TIMESTAMP WHERE id = ?',
+            [shareLink.id]
+        );
+
+        io.to(getRoomName(shareLink.document_id)).emit('document:update', {
+            documentId: Number(shareLink.document_id),
+            title,
+            content,
+            format,
+            source: 'share-api',
+            updatedAt: new Date().toISOString()
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.get('/api/settings', isAuthenticated, async (req, res) => {
+    try {
+        const user = await dbGet('SELECT username, dark_mode, predictive_text FROM users WHERE id = ?', [req.session.userId]);
+        if (!user) return res.status(404).json({ error: 'Not found.' });
+
+        res.json({
+            username: user.username,
+            darkMode: normalizeBoolean(user.dark_mode),
+            predictiveText: normalizeBoolean(user.predictive_text, true)
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.put('/api/settings', isAuthenticated, async (req, res) => {
+    const darkMode = normalizeBoolean(req.body.darkMode);
+    const predictiveText = normalizeBoolean(req.body.predictiveText, true);
+
+    try {
+        await dbRun(
+            'UPDATE users SET dark_mode = ?, predictive_text = ? WHERE id = ?',
+            [darkMode ? 1 : 0, predictiveText ? 1 : 0, req.session.userId]
+        );
+        res.json({ success: true, darkMode, predictiveText });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.post('/api/change-password', isAuthenticated, async (req, res) => {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        return res.status(400).json({ error: 'Missing fields.' });
+    }
+
+    if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: 'New passwords do not match.' });
+    }
+
+    try {
+        const user = await dbGet('SELECT password FROM users WHERE id = ?', [req.session.userId]);
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+
+        const matches = await bcrypt.compare(currentPassword, user.password);
+        if (!matches) {
+            return res.status(400).json({ error: 'Current password is incorrect.' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await dbRun('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, req.session.userId]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.post('/api/docs/:id/invite', isAuthenticated, async (req, res) => {
+    const { username, permissionLevel = 'view' } = req.body;
+
+    if (!username) return res.status(400).json({ error: 'Username is required.' });
+
+    try {
+        const document = await dbGet('SELECT id, user_id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden' });
+
+        const invitedUser = await dbGet('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)', [username.trim()]);
+        if (!invitedUser) return res.status(404).json({ error: 'User not found.' });
+
+        const normalizedPermission = permissionLevel === 'edit' ? 'edit' : 'view';
+        await grantDocumentPermission(document.id, invitedUser.id, normalizedPermission, req.session.userId, null);
+
+        res.json({ success: true, username: invitedUser.username, permissionLevel: normalizedPermission });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
 // --- AI Chat/Completion Route ---
 app.post('/api/ai/chat', isAuthenticated, async (req, res) => {
-    const { message, documentContent } = req.body;
-    
-    const promptSystem = `You are Llama 3, a highly intelligent AI assistant integrated into a document editor called DocuLock. 
+    const { message, documentContent, tone, persona } = req.body;
+
+    // Tone presets for system prompt modification
+    const toneModifiers = {
+        'Academic': 'Write in an academic, formal tone with proper citations and structured arguments.',
+        'Creative': 'Write in a creative, engaging tone with vivid descriptions and varied sentence structure.',
+        'Concise': 'Write in a concise, direct tone. Be brief and to the point without unnecessary elaboration.',
+        'Expand': 'Write with more detail and elaboration. Provide comprehensive explanations and examples.'
+    };
+
+    // AI Personas
+    const personaInstructions = {
+        'Editor': 'You are a professional editor. Focus on grammar, clarity, structure, and flow. Provide detailed feedback on how to improve the writing.',
+        'Brainstormer': 'You are a creative brainstorming partner. Generate new ideas, expand on concepts, suggest examples, and help the user think deeper about their topic.',
+        'Critic': 'You are a constructive critic. Analyze the writing for logical consistency, arguments, evidence, and provide thoughtful critique without being harsh.',
+        'Summarizer': 'You are a summarization expert. Distill the key points into a concise summary that captures the essence of the content.',
+        'Llama': 'You are Llama 3, a highly intelligent AI assistant integrated into a document editor called DocuLock.'
+    };
+
+    const toneInstruction = tone && toneModifiers[tone] ? `\nTone: ${toneModifiers[tone]}` : '';
+    const personaBase = personaInstructions[persona] || personaInstructions['Llama'];
+
+    const promptSystem = `${personaBase}
 If the user asks you to modify, rewrite, or write something into the document, you MUST output the new document content wrapped in EXACTLY these delimiters:
 $$NEW_CONTENT_START$$
 (new document content here)
 $$NEW_CONTENT_END$$
 
-If you are only providing chat advice or answering a question without making a direct edit to the document, just reply normally. If you do edit, you can optionally provide a regular message explaining the edit before or after the delimiter blocks.`;
+If you are only providing chat advice or answering a question without making a direct edit to the document, just reply normally. If you do edit, you can optionally provide a regular message explaining the edit before or after the delimiter blocks.${toneInstruction}`;
 
-    const promptContext = documentContent 
+    const promptContext = documentContent
         ? `Here is the current content of my document for context:\n` + documentContent + `\n\nUser question: ` + message
         : `User question: ` + message;
-        
+
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [
@@ -149,7 +646,7 @@ If you are only providing chat advice or answering a question without making a d
             ],
             model: 'llama-3.3-70b-versatile',
         });
-        
+
         const rawReply = chatCompletion.choices[0]?.message?.content || "";
         let chatReply = rawReply;
         let diff = null;
@@ -170,9 +667,24 @@ If you are only providing chat advice or answering a question without making a d
 });
 
 // --- Ghost Text Autocomplete ---
-app.post('/api/ai/autocomplete', isAuthenticated, async (req, res) => {
-    const { contextText } = req.body;
+app.post('/api/ai/autocomplete', async (req, res) => {
+    const { contextText, documentId, shareToken } = req.body;
     try {
+        const userId = req.session.userId || null;
+        let access = null;
+
+        if (documentId && userId) {
+            access = await resolveDocumentAccess(documentId, userId);
+        }
+
+        if (!access && documentId && shareToken) {
+            access = await resolveDocumentAccess(documentId, null, shareToken);
+        }
+
+        if (!access || !access.canEdit) {
+            return res.status(403).json({ error: 'Autocomplete is unavailable for this document.' });
+        }
+
         const completion = await groq.chat.completions.create({
             messages: [
                 { role: "system", content: "You are an autocomplete engine inside a document editor (like GitHub Copilot). Provide ONLY the exact next few words or the rest of the sentence based on the context. No pleasantries, no markdown blocks, no quotes. Just the raw continuation string." },
@@ -246,11 +758,168 @@ app.delete('/api/documents/:id/versions/:vid', isAuthenticated, (req, res) => {
     });
 });
 
+io.on('connection', (socket) => {
+    socket.on('collab:join', async ({ documentId, shareToken }) => {
+        try {
+            const userId = socket.request.session?.userId || null;
+            const access = await resolveDocumentAccess(documentId, userId, shareToken || null);
+
+            if (!access) {
+                socket.emit('collab:error', { message: 'Access denied for this document.' });
+                return;
+            }
+
+            socket.data.documentId = Number(documentId);
+            socket.data.permissionLevel = access.permissionLevel;
+            socket.data.canEdit = access.canEdit;
+
+            const username = socket.request.session?.username || `Guest ${socket.id.slice(-4)}`;
+            const collaborator = {
+                socketId: socket.id,
+                userId,
+                username,
+                color: colorForIdentifier(username),
+                permissionLevel: access.permissionLevel,
+                canEdit: access.canEdit,
+                isTyping: false,
+                cursor: null,
+                lastSeen: new Date().toISOString()
+            };
+
+            socket.join(getRoomName(documentId));
+            upsertCollaborator(documentId, socket.id, collaborator);
+
+            const chatHistory = await dbAll(
+                `SELECT id, document_id, user_id, username, message, created_at
+                 FROM document_chat_messages
+                 WHERE document_id = ?
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 50`,
+                [documentId]
+            );
+
+            socket.emit('collab:sync', {
+                documentId: Number(documentId),
+                title: access.document.title,
+                content: access.document.content,
+                format: access.document.format,
+                permissionLevel: access.permissionLevel,
+                canEdit: access.canEdit,
+                collaborators: getCollaboratorList(documentId)
+            });
+
+            socket.emit('collab:chat:history', {
+                documentId: Number(documentId),
+                messages: (chatHistory || []).reverse()
+            });
+        } catch (err) {
+            socket.emit('collab:error', { message: 'Unable to join collaboration session.' });
+        }
+    });
+
+    socket.on('collab:chat:send', async (payload = {}) => {
+        const documentId = socket.data.documentId || payload.documentId;
+        const rawMessage = typeof payload.message === 'string' ? payload.message.trim() : '';
+
+        if (!documentId || !rawMessage) return;
+
+        try {
+            const access = await resolveDocumentAccess(documentId, socket.request.session?.userId || null);
+            if (!access) {
+                socket.emit('collab:error', { message: 'Access denied for this document.' });
+                return;
+            }
+
+            const username = socket.request.session?.username || `Guest ${socket.id.slice(-4)}`;
+            const insertResult = await dbRun(
+                `INSERT INTO document_chat_messages (document_id, user_id, username, message)
+                 VALUES (?, ?, ?, ?)`,
+                [Number(documentId), socket.request.session?.userId || null, username, rawMessage]
+            );
+
+            const message = {
+                id: insertResult.lastID,
+                documentId: Number(documentId),
+                userId: socket.request.session?.userId || null,
+                username,
+                message: rawMessage,
+                createdAt: new Date().toISOString(),
+                color: colorForIdentifier(username)
+            };
+
+            io.to(getRoomName(documentId)).emit('collab:chat:message', message);
+        } catch (err) {
+            socket.emit('collab:error', { message: 'Unable to send chat message.' });
+        }
+    });
+
+    socket.on('document:update', async (payload = {}) => {
+        const documentId = socket.data.documentId || payload.documentId;
+        if (!documentId) return;
+        if (!socket.data.canEdit) {
+            socket.emit('collab:error', { message: 'This document is read-only.' });
+            return;
+        }
+
+        try {
+            const title = typeof payload.title === 'string' ? payload.title : '';
+            const content = typeof payload.content === 'string' ? payload.content : '';
+            const format = payload.format === 'tex' ? 'tex' : payload.format === 'board' ? 'board' : 'docx';
+
+            await persistCollaborativeUpdate(documentId, title, content, format);
+            upsertCollaborator(documentId, socket.id, { lastSeen: new Date().toISOString(), isTyping: false });
+
+            socket.to(getRoomName(documentId)).emit('document:update', {
+                documentId: Number(documentId),
+                title,
+                content,
+                format,
+                sourceSocketId: socket.id,
+                updatedBy: socket.request.session?.username || 'Guest',
+                updatedAt: new Date().toISOString()
+            });
+        } catch (err) {
+            socket.emit('collab:error', { message: 'Failed to sync document.' });
+        }
+    });
+
+    socket.on('cursor:update', (payload = {}) => {
+        const documentId = socket.data.documentId || payload.documentId;
+        if (!documentId) return;
+
+        upsertCollaborator(documentId, socket.id, {
+            cursor: payload.cursor || null,
+            isTyping: Boolean(payload.isTyping),
+            lastSeen: new Date().toISOString()
+        });
+
+        socket.to(getRoomName(documentId)).emit('cursor:update', {
+            documentId: Number(documentId),
+            socketId: socket.id,
+            username: socket.request.session?.username || 'Guest',
+            cursor: payload.cursor || null,
+            isTyping: Boolean(payload.isTyping),
+            color: colorForIdentifier(socket.request.session?.username || socket.id)
+        });
+    });
+
+    socket.on('disconnect', () => {
+        if (socket.data.documentId) {
+            removeCollaborator(socket.data.documentId, socket.id);
+        }
+    });
+});
+
 // Map export routes dynamically below...
 const exportRoutes = require('./export-routes');
 app.use('/api/export', isAuthenticated, exportRoutes);
 
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`DocuLock Server running on http://localhost:${PORT}`);
+    });
+}
 
-app.listen(PORT, () => {
-    console.log(`DocuLock Server running on http://localhost:${PORT}`);
-});
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;

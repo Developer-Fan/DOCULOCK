@@ -33,3 +33,4 @@ coverage/
 
 # make sure not to leak your data
 doculock.db
+COLLABORATION_ROADMAP.md

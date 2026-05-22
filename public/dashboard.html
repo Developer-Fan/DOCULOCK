@@ -12,6 +12,7 @@
         <div>
             <span id="user-display" style="margin-right: 16px; font-size: 14px; font-weight: 500;"></span>
             <button class="btn" onclick="createNewDoc()">New Document</button>
+            <button class="btn secondary" onclick="openDashboardSettings()">Settings</button>
             <button class="btn secondary" onclick="logout()">Sign Out</button>
         </div>
     </nav>
@@ -24,23 +25,146 @@
             </div>
         </div>
 
-        <div class="doc-grid" id="doc-grid">
-            <!-- Documents will load here -->
+        <div style="margin-bottom: 28px;">
+            <h3 style="font-size: 18px; margin-bottom: 14px; font-weight: 600;">Your documents</h3>
+            <div class="doc-grid" id="doc-grid"></div>
+        </div>
+
+        <div>
+            <h3 style="font-size: 18px; margin-bottom: 14px; font-weight: 600;">Shared with you</h3>
+            <div class="doc-grid" id="shared-doc-grid"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="dashboard-settings-modal" onclick="if(event.target===this) this.style.display='none'">
+        <div class="modal" style="max-width: 560px; width: 92%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3>Settings</h3>
+                <button class="btn secondary" style="padding: 6px 12px;" onclick="document.getElementById('dashboard-settings-modal').style.display='none'">Close</button>
+            </div>
+
+            <div style="border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 20px; display: grid; gap: 12px;">
+                <h4 style="margin-bottom: 0; font-size: 14px; font-weight: 600;">Preferences</h4>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="dashboard-dark-toggle" onchange="saveDashboardSettings()">
+                    <span>Dark mode</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="dashboard-predictive-toggle" onchange="saveDashboardSettings()">
+                    <span>Enable predictive text generation</span>
+                </label>
+            </div>
+
+            <div style="border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 20px; display: grid; gap: 10px;">
+                <h4 style="margin-bottom: 0; font-size: 14px; font-weight: 600;">Change Password</h4>
+                <input type="password" id="current-password" placeholder="Current password" style="width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);">
+                <input type="password" id="new-password" placeholder="New password" style="width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);">
+                <input type="password" id="confirm-new-password" placeholder="Confirm new password" style="width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);">
+                <button class="btn" onclick="changePassword()">Update Password</button>
+                <p id="password-change-status" style="margin: 0; color: var(--text-secondary); font-size: 13px;"></p>
+            </div>
+
+            <div>
+                <h4 style="margin-bottom: 12px; font-size: 14px; font-weight: 600;">Account</h4>
+                <p style="color: var(--text-secondary); font-size: 13px; margin: 0;">Username: <strong id="dashboard-username">User</strong></p>
+            </div>
         </div>
     </div>
 
     <script>
+        let dashboardDarkMode = false;
+        let dashboardPredictiveText = true;
+
         async function checkAuth() {
             const res = await fetch('/api/me');
             if (!res.ok) window.location.href = '/login.html';
             const data = await res.json();
             document.getElementById('user-display').innerText = data.username;
             document.getElementById('user-display-name').innerText = data.username;
+            document.getElementById('dashboard-username').innerText = data.username;
+            await loadDashboardSettings();
+        }
+
+        function applyDashboardDarkMode() {
+            document.body.classList.toggle('dark-mode', dashboardDarkMode);
+            localStorage.setItem('darkMode', String(dashboardDarkMode));
+            const darkToggle = document.getElementById('dashboard-dark-toggle');
+            if (darkToggle) darkToggle.checked = dashboardDarkMode;
+        }
+
+        async function loadDashboardSettings() {
+            try {
+                const res = await fetch('/api/settings');
+                if (!res.ok) return;
+                const data = await res.json();
+                dashboardDarkMode = Boolean(data.darkMode);
+                dashboardPredictiveText = data.predictiveText !== false;
+                applyDashboardDarkMode();
+                localStorage.setItem('darkMode', String(dashboardDarkMode));
+
+                const predictiveToggle = document.getElementById('dashboard-predictive-toggle');
+                if (predictiveToggle) predictiveToggle.checked = dashboardPredictiveText;
+            } catch (err) {
+                // Ignore settings load errors and keep defaults.
+            }
+        }
+
+        function openDashboardSettings() {
+            document.getElementById('dashboard-settings-modal').style.display = 'flex';
+            loadDashboardSettings();
+        }
+
+        async function saveDashboardSettings() {
+            dashboardDarkMode = document.getElementById('dashboard-dark-toggle').checked;
+            dashboardPredictiveText = document.getElementById('dashboard-predictive-toggle').checked;
+            applyDashboardDarkMode();
+            localStorage.setItem('darkMode', String(dashboardDarkMode));
+
+            await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    darkMode: dashboardDarkMode,
+                    predictiveText: dashboardPredictiveText
+                })
+            });
+        }
+
+        async function changePassword() {
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-new-password').value;
+            const status = document.getElementById('password-change-status');
+
+            status.innerText = 'Updating password...';
+
+            const res = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword, confirmPassword })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                status.innerText = data.error || 'Unable to update password.';
+                return;
+            }
+
+            document.getElementById('current-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-new-password').value = '';
+            status.innerText = 'Password updated successfully.';
         }
 
         async function loadDocs() {
-            const res = await fetch('/api/docs');
-            const docs = await res.json();
+            const [ownRes, sharedRes] = await Promise.all([
+                fetch('/api/docs'),
+                fetch('/api/shared-docs')
+            ]);
+
+            const docs = await ownRes.json();
+            const sharedDocs = sharedRes.ok ? await sharedRes.json() : [];
+
             const grid = document.getElementById('doc-grid');
             grid.innerHTML = `
                 <div class="doc-card glass new-doc-card" onclick="createNewDoc()">
@@ -51,9 +175,10 @@
             `;
             docs.forEach(doc => {
                 const date = new Date(doc.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                // Simple preview text extraction
-                const preview = doc.content ? doc.content.replace(/<[^>]+>/g, ' ').substring(0, 60) + '...' : 'Empty document';
-                
+                const preview = doc.format === 'board'
+                    ? 'Infinite whiteboard'
+                    : doc.content ? doc.content.replace(/<[^>]+>/g, ' ').substring(0, 60) + '...' : 'Empty document';
+
                 grid.innerHTML += `
                     <div class="doc-card glass" onclick="window.location.href='/editor.html?id=${doc.id}'">
                         <div class="doc-format-badge">${doc.format.toUpperCase()}</div>
@@ -63,13 +188,42 @@
                     </div>
                 `;
             });
+
+            const sharedGrid = document.getElementById('shared-doc-grid');
+            if (!sharedDocs.length) {
+                sharedGrid.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px;">No shared documents yet.</p>';
+                return;
+            }
+
+            sharedGrid.innerHTML = '';
+            sharedDocs.forEach(doc => {
+                const date = new Date(doc.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                const preview = doc.format === 'board'
+                    ? 'Shared whiteboard'
+                    : doc.content ? doc.content.replace(/<[^>]+>/g, ' ').substring(0, 60) + '...' : 'Shared document';
+
+                sharedGrid.innerHTML += `
+                    <div class="doc-card glass" onclick="window.location.href='/editor.html?id=${doc.id}'">
+                        <div class="doc-format-badge">SHARED</div>
+                        <div class="doc-title">${doc.title || 'Untitled'}</div>
+                        <div class="doc-preview" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; height: 40px; overflow: hidden;">${preview}</div>
+                        <div class="doc-meta">Owner: ${doc.owner_username || 'Unknown'} · Edited ${date}</div>
+                    </div>
+                `;
+            });
         }
 
         async function createNewDoc() {
+            return createDocument('docx', 'Untitled Document');
+        }
+
+        // Whiteboard creation removed
+
+        async function createDocument(format, title) {
             const res = await fetch('/api/docs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: 'Untitled Document', content: '', format: 'docx' })
+                body: JSON.stringify({ title, content: format === 'board' ? JSON.stringify({ version: 1, width: 3200, height: 3200, strokes: [] }) : '', format })
             });
             const data = await res.json();
             if (data.success) {
