@@ -1,25 +1,13 @@
-const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs');
 const path = require('path');
+const initSqlJs = require('sql.js');
 
-const dbPath = path.resolve(__dirname, 'doculock.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Error connecting to database:', err.message);
-    } else {
-        console.log('Connected to the SQLite database.');
-    }
-});
+const dbPath = process.env.VERCEL
+    ? '/tmp/doculock.db'
+    : path.resolve(__dirname, 'doculock.db');
+const wasmPath = path.resolve(__dirname, 'node_modules', 'sql.js', 'dist');
 
-function addColumnIfMissing(tableName, columnDefinition) {
-    db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnDefinition}`, (err) => {
-        if (err && !/duplicate column name/i.test(err.message)) {
-            console.error(`Error updating ${tableName}:`, err.message);
-        }
-    });
-}
-
-// Initialize Tables
-db.serialize(() => {
+function createTables(db) {
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,8 +16,16 @@ db.serialize(() => {
         )
     `);
 
-    addColumnIfMissing('users', 'dark_mode INTEGER DEFAULT 0');
-    addColumnIfMissing('users', 'predictive_text INTEGER DEFAULT 1');
+    try {
+        db.run(`ALTER TABLE users ADD COLUMN dark_mode INTEGER DEFAULT 0`);
+    } catch (err) {
+        if (!/duplicate column name/i.test(String(err.message || err))) throw err;
+    }
+    try {
+        db.run(`ALTER TABLE users ADD COLUMN predictive_text INTEGER DEFAULT 1`);
+    } catch (err) {
+        if (!/duplicate column name/i.test(String(err.message || err))) throw err;
+    }
 
     db.run(`
         CREATE TABLE IF NOT EXISTS documents (
@@ -69,7 +65,11 @@ db.serialize(() => {
         )
     `);
 
-    addColumnIfMissing('document_permissions', 'source_share_link_id INTEGER');
+    try {
+        db.run(`ALTER TABLE document_permissions ADD COLUMN source_share_link_id INTEGER`);
+    } catch (err) {
+        if (!/duplicate column name/i.test(String(err.message || err))) throw err;
+    }
 
     db.run(`
         CREATE TABLE IF NOT EXISTS share_links (
@@ -99,6 +99,149 @@ db.serialize(() => {
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     `);
+}
+
+function persistDatabase(db) {
+    try {
+        fs.writeFileSync(dbPath, Buffer.from(db.export()));
+    } catch (err) {
+        console.error('Error saving database:', err.message);
+    }
+}
+
+const ready = initSqlJs({
+    locateFile: (file) => path.join(wasmPath, file)
+}).then((SQL) => {
+    let db;
+    if (fs.existsSync(dbPath)) {
+        const fileBuffer = fs.readFileSync(dbPath);
+        db = new SQL.Database(fileBuffer);
+    } else {
+        db = new SQL.Database();
+    }
+
+    createTables(db);
+    persistDatabase(db);
+    console.log(`Connected to the SQLite-compatible database at ${dbPath}.`);
+    return db;
+}).catch((err) => {
+    console.error('Failed to initialize sql.js database:', err.message);
+    throw err;
 });
+
+function bindParams(statement, params = []) {
+    if (Array.isArray(params)) {
+        statement.bind(params);
+        return;
+    }
+
+    if (params && typeof params === 'object') {
+        statement.bind(params);
+        return;
+    }
+
+    statement.bind([]);
+}
+
+function executeSelect(db, sql, params, mode) {
+    const statement = db.prepare(sql);
+    try {
+        bindParams(statement, params);
+        const rows = [];
+        while (statement.step()) {
+            rows.push(statement.getAsObject());
+            if (mode === 'get') break;
+        }
+        return mode === 'get' ? (rows[0] || undefined) : rows;
+    } finally {
+        statement.free();
+    }
+}
+
+function executeRun(db, sql, params) {
+    const statement = db.prepare(sql);
+    try {
+        bindParams(statement, params);
+        statement.step();
+        const lastIDRow = db.exec('SELECT last_insert_rowid() AS id');
+        const lastID = lastIDRow?.[0]?.values?.[0]?.[0] ?? 0;
+        const changes = typeof db.getRowsModified === 'function' ? db.getRowsModified() : 0;
+        persistDatabase(db);
+        return { lastID, changes };
+    } finally {
+        statement.free();
+    }
+}
+
+const db = {
+    get(sql, params = [], callback) {
+        ready
+            .then((database) => {
+                try {
+                    const row = executeSelect(database, sql, params, 'get');
+                    callback?.(null, row);
+                } catch (err) {
+                    callback?.(err);
+                }
+            })
+            .catch((err) => callback?.(err));
+    },
+
+    all(sql, params = [], callback) {
+        ready
+            .then((database) => {
+                try {
+                    const rows = executeSelect(database, sql, params, 'all');
+                    callback?.(null, rows);
+                } catch (err) {
+                    callback?.(err);
+                }
+            })
+            .catch((err) => callback?.(err));
+    },
+
+    run(sql, params = [], callback) {
+        ready
+            .then((database) => {
+                try {
+                    const result = executeRun(database, sql, params);
+                    if (typeof callback === 'function') {
+                        callback.call(result, null);
+                    }
+                } catch (err) {
+                    if (typeof callback === 'function') {
+                        callback.call({ lastID: 0, changes: 0 }, err);
+                    }
+                }
+            })
+            .catch((err) => {
+                if (typeof callback === 'function') {
+                    callback.call({ lastID: 0, changes: 0 }, err);
+                }
+            });
+    },
+
+    serialize(callback) {
+        ready.then(() => {
+            if (typeof callback === 'function') callback();
+        });
+    },
+
+    close(callback) {
+        ready
+            .then((database) => {
+                try {
+                    persistDatabase(database);
+                    database.close();
+                    callback?.(null);
+                } catch (err) {
+                    callback?.(err);
+                }
+            })
+            .catch((err) => callback?.(err));
+    },
+
+    ready
+};
 
 module.exports = db;
