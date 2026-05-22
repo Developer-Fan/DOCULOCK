@@ -379,7 +379,12 @@ app.get('/api/docs/:id', isAuthenticated, (req, res) => {
         try {
             const access = await resolveDocumentAccess(req.params.id, req.session.userId);
             if (!access || !access.document) return res.status(404).json({ error: 'Not found.' });
-            res.json(access.document);
+            res.json({
+                document: access.document,
+                accessType: access.accessType,
+                permissionLevel: access.permissionLevel,
+                canEdit: access.canEdit
+            });
         } catch (err) {
             res.status(500).json({ error: 'Database error.' });
         }
@@ -402,11 +407,24 @@ app.put('/api/docs/:id', isAuthenticated, (req, res) => {
     })();
 });
 
-app.delete('/api/docs/:id', isAuthenticated, (req, res) => {
-    db.run(`DELETE FROM documents WHERE id = ? AND user_id = ?`, [req.params.id, req.session.userId], function(err) {
-        if (err) return res.status(500).json({ error: 'Database error.' });
+app.delete('/api/docs/:id', isAuthenticated, async (req, res) => {
+    try {
+        const document = await dbGet('SELECT id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden.' });
+
+        await dbRun('DELETE FROM document_chat_messages WHERE document_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM versions WHERE document_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM document_permissions WHERE document_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM share_links WHERE document_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+
+        activeCollaborators.delete(Number(req.params.id));
+        io.to(getRoomName(req.params.id)).emit('document:deleted', { documentId: Number(req.params.id) });
+
         res.json({ success: true });
-    });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
 });
 
 app.get('/api/shared-docs', isAuthenticated, async (req, res) => {

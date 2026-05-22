@@ -9,6 +9,8 @@ let collaborationCursorTimeout = null;
 let canEditDocument = true;
 let currentShareLink = '';
 let currentSharePermission = 'edit';
+let isDocumentOwner = false;
+let canDeleteDocument = false;
 let suppressRemoteSave = false;
 let isLoggedIn = false;
 let predictiveTextEnabled = true;
@@ -57,6 +59,13 @@ function toggleEditorMenu() {
     const menu = document.getElementById('editor-menu');
     if (!menu) return;
     menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+
+function updateDocumentActionVisibility() {
+    const deleteButton = document.getElementById('delete-document-btn');
+    if (deleteButton) {
+        deleteButton.style.display = canDeleteDocument ? 'flex' : 'none';
+    }
 }
 
 function getPlainEditorText() {
@@ -451,6 +460,12 @@ function connectCollaboration() {
         renderCollaboratorChatMessage(message);
     });
 
+    collaborationSocket.on('document:deleted', (payload) => {
+        if (!payload || Number(payload.documentId) !== Number(docId)) return;
+        alert('This document was deleted by its owner.');
+        window.location.href = '/dashboard.html';
+    });
+
     collaborationSocket.on('disconnect', () => {
         updateCollabStatus('Offline', 0);
     });
@@ -482,6 +497,9 @@ async function loadDoc() {
             docId = loadedDoc.id;
         }
 
+        isDocumentOwner = doc.accessType ? doc.accessType === 'owner' : !shareToken;
+        canDeleteDocument = isDocumentOwner && !shareToken;
+
         document.getElementById('doc-title').value = loadedDoc.title;
         currentFormat = loadedDoc.format || 'docx';
         switchFormat(currentFormat, false);
@@ -489,8 +507,8 @@ async function loadDoc() {
             resetWhiteboard(loadedDoc.content);
         }
 
-        canEditDocument = shareToken ? Boolean(doc.canEdit) : true;
-        currentSharePermission = doc.permissionLevel || 'edit';
+        canEditDocument = typeof doc.canEdit === 'boolean' ? Boolean(doc.canEdit) : true;
+        currentSharePermission = doc.permissionLevel || (isDocumentOwner ? 'owner' : 'edit');
         currentShareLink = shareToken ? `${window.location.origin}/editor.html?share=${shareToken}` : '';
 
         if (currentFormat === 'tex') {
@@ -500,6 +518,7 @@ async function loadDoc() {
         }
 
         applyEditPermissions();
+        updateDocumentActionVisibility();
         connectCollaboration();
     } catch(err) {
         window.location.href = '/dashboard.html';
@@ -634,10 +653,23 @@ async function saveDoc() {
 }
 
 async function deleteDoc() {
-    if (confirm('Are you sure you want to delete this document?')) {
-        await fetch(`/api/docs/${docId}`, { method: 'DELETE' });
-        window.location.href = '/dashboard.html';
+    if (!canDeleteDocument) return;
+    if (!confirm('Are you sure you want to permanently delete this document? This cannot be undone.')) return;
+
+    const res = await fetch(`/api/docs/${docId}`, { method: 'DELETE' });
+    if (!res.ok) {
+        let message = 'Unable to delete this document.';
+        try {
+            const data = await res.json();
+            if (data?.error) message = data.error;
+        } catch (err) {
+            // Ignore JSON parsing issues and keep the default message.
+        }
+        alert(message);
+        return;
     }
+
+    window.location.href = '/dashboard.html';
 }
 
 function exportDoc(type) {

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuLock - Pricing & Membership</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            background: radial-gradient(circle at top, #ffffff, #f5f5f7);
+        }
+
+        .pricing-shell {
+            position: relative;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .pricing-shell::before,
+        .pricing-shell::after {
+            content: '';
+            position: absolute;
+            border-radius: 999px;
+            filter: blur(8px);
+            pointer-events: none;
+        }
+
+        .pricing-shell::before {
+            width: 360px;
+            height: 360px;
+            right: -100px;
+            top: 80px;
+            background: rgba(0, 113, 227, 0.08);
+        }
+
+        .pricing-shell::after {
+            width: 320px;
+            height: 320px;
+            left: -110px;
+            bottom: 90px;
+            background: rgba(0, 0, 0, 0.04);
+        }
+
+        .pricing-nav {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 24px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 20;
+        }
+
+        .pricing-nav-links {
+            display: flex;
+            align-items: center;
+        }
+
+        .pricing-nav-links a {
+            text-decoration: none;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .pricing-nav-links a:first-child {
+            margin-right: 20px;
+        }
+
+        .pricing-nav-links a:last-of-type {
+            margin-right: 24px;
+        }
+
+        .pricing-hero {
+            position: relative;
+            z-index: 1;
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 140px 20px 36px;
+            text-align: center;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .pricing-hero h1 {
+            margin: 18px auto 16px;
+            max-width: 12ch;
+            font-size: clamp(4rem, 8vw, 80px);
+            font-weight: 700;
+            line-height: 0.96;
+            letter-spacing: -2px;
+            background: -webkit-linear-gradient(45deg, #1d1d1f, #86868b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .pricing-hero p {
+            margin: 0 auto;
+            max-width: 600px;
+            font-size: 24px;
+            line-height: 1.45;
+            color: var(--text-secondary);
+        }
+
+        .pricing-hero .btn-large {
+            font-size: 18px;
+            padding: 16px 36px;
+            border-radius: 980px;
+        }
+
+        .pricing-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 36px;
+        }
+
+        .pricing-grid {
+            position: relative;
+            z-index: 1;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px 36px 64px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 24px;
+        }
+
+        .plan-card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+            padding: 28px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.12);
+            transition: transform 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .plan-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 36px 70px rgba(0,0,0,0.14);
+        }
+
+        .plan-card.featured {
+            background: linear-gradient(180deg, rgba(0, 113, 227, 0.06), rgba(255, 255, 255, 0.92));
+            border-color: rgba(0, 113, 227, 0.18);
+            transform: translateY(-8px);
+        }
+
+        body.page-leaving {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+            filter: blur(8px);
+            transition: opacity 0.28s ease, transform 0.28s ease, filter 0.28s ease;
+        }
+
+        .plan-tag {
+            align-self: flex-start;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            background: rgba(0, 113, 227, 0.08);
+            color: var(--accent);
+        }
+
+        .plan-price {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-top: -2px;
+        }
+
+        .plan-price strong {
+            font-size: 2.2rem;
+            letter-spacing: -0.06em;
+        }
+
+        .plan-price span {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .plan-list {
+            list-style: none;
+            display: grid;
+            gap: 12px;
+            color: var(--text-primary);
+        }
+
+        .plan-list li {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            font-size: 14px;
+        }
+
+        .plan-list li::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            margin-top: 7px;
+            border-radius: 999px;
+            background: var(--accent);
+            flex: 0 0 auto;
+        }
+
+        .compare-section {
+            position: relative;
+            z-index: 1;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 36px 84px;
+        }
+
+        .compare-shell {
+            padding: 32px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.12);
+        }
+
+        .compare-shell h2 {
+            font-size: 2rem;
+            letter-spacing: -0.05em;
+            margin-bottom: 14px;
+        }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: 1.2fr repeat(4, 1fr);
+            gap: 14px;
+            margin-top: 26px;
+        }
+
+        .compare-head,
+        .compare-cell {
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.84);
+            border: 1px solid var(--border);
+        }
+
+        .compare-head {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .compare-cell {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .compare-cell strong {
+            color: var(--text-primary);
+        }
+
+        .fine-print {
+            margin-top: 22px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 1100px) {
+            .pricing-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .compare-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .compare-head:first-child,
+            .compare-cell:first-child {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .pricing-nav,
+            .pricing-hero,
+            .pricing-grid,
+            .compare-section {
+                padding-left: 18px;
+                padding-right: 18px;
+            }
+
+            .pricing-nav {
+                flex-direction: column;
+                align-items: flex-start;
+                padding-top: 18px;
+            }
+
+            .pricing-hero {
+                padding-top: 160px;
+            }
+
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .plan-card.featured {
+                transform: none;
+            }
+
+            .compare-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="pricing-shell">
+        <div class="pricing-nav">
+            <div class="brand" style="font-size: 24px;">DocuLock <span style="color: var(--accent);">AI</span></div>
+            <div class="pricing-nav-links">
+                <a href="/" onclick="goWithTransition('/'); return false;">Home</a>
+                <a href="/login.html" onclick="goWithTransition('/login.html'); return false;">Sign In</a>
+                <button class="btn" onclick="goWithTransition('/login.html')">Get Started</button>
+            </div>
+        </div>
+
+        <section class="pricing-hero">
+            <div class="eyebrow">Membership concept</div>
+            <h1>Plans that feel editorial, not industrial.</h1>
+            <p>
+                DocuLock scales from a focused solo workspace to a full team environment. This is a concept page, so the billing flow is intentionally not wired yet.
+            </p>
+            <div class="pricing-actions">
+                <button class="btn btn-large" onclick="goWithTransition('/login.html')">Try DocuLock Free</button>
+                <button class="btn secondary" onclick="goWithTransition('/')">Back to the product</button>
+            </div>
+        </section>
+
+        <section class="pricing-grid">
+            <article class="plan-card">
+                <div class="plan-tag">Freelance Plan</div>
+                <div>
+                    <h2>Solo momentum</h2>
+                    <div class="plan-price"><strong>Free</strong><span>for independent work</span></div>
+                </div>
+                <ul class="plan-list">
+                    <li>50 AI credits per day</li>
+                    <li>10 document limit</li>
+                    <li>Up to 5 collaborators per document</li>
+                    <li>3 version snapshots per document</li>
+                    <li>Basic exports: DOCX, PDF, and LaTeX</li>
+                </ul>
+            </article>
+
+            <article class="plan-card featured">
+                <div class="plan-tag">Author Plan</div>
+                <div>
+                    <h2>Serious drafting</h2>
+                    <div class="plan-price"><strong>$12</strong><span>/ month</span></div>
+                </div>
+                <ul class="plan-list">
+                    <li>500 AI credits per day</li>
+                    <li>100 document limit</li>
+                    <li>Up to 20 collaborators per document</li>
+                    <li>Unlimited version history</li>
+                    <li>Advanced templates and citation tools</li>
+                </ul>
+            </article>
+
+            <article class="plan-card">
+                <div class="plan-tag">Pro Plan</div>
+                <div>
+                    <h2>Team acceleration</h2>
+                    <div class="plan-price"><strong>$24</strong><span>/ month</span></div>
+                </div>
+                <ul class="plan-list">
+                    <li>2,500 AI credits per day</li>
+                    <li>Unlimited documents</li>
+                    <li>Up to 100 collaborators per document</li>
+                    <li>Priority collaboration sync</li>
+                    <li>Brandable sharing and exports</li>
+                </ul>
+            </article>
+
+            <article class="plan-card">
+                <div class="plan-tag">Enterprise Plan</div>
+                <div>
+                    <h2>Designed for scale</h2>
+                    <div class="plan-price"><strong>Custom</strong><span>pricing</span></div>
+                </div>
+                <ul class="plan-list">
+                    <li>Unlimited AI usage pools</li>
+                    <li>Workspace-level controls and SSO</li>
+                    <li>Dedicated success and support</li>
+                    <li>Audit logs and retention policies</li>
+                    <li>Private deployment options</li>
+                </ul>
+            </article>
+        </section>
+
+        <section class="compare-section">
+            <div class="compare-shell">
+                <h2>What changes as you grow</h2>
+                <p style="color: var(--text-secondary); max-width: 760px;">
+                    The structure is intentionally simple: more credits, more documents, deeper collaboration, and stronger admin controls as the plan level rises.
+                </p>
+
+                <div class="compare-grid">
+                    <div class="compare-head">Capability</div>
+                    <div class="compare-head">Freelance</div>
+                    <div class="compare-head">Author</div>
+                    <div class="compare-head">Pro</div>
+                    <div class="compare-head">Enterprise</div>
+
+                    <div class="compare-cell"><strong>AI usage</strong></div>
+                    <div class="compare-cell">50 credits/day</div>
+                    <div class="compare-cell">500 credits/day</div>
+                    <div class="compare-cell">2,500 credits/day</div>
+                    <div class="compare-cell">Custom pool</div>
+
+                    <div class="compare-cell"><strong>Documents</strong></div>
+                    <div class="compare-cell">10</div>
+                    <div class="compare-cell">100</div>
+                    <div class="compare-cell">Unlimited</div>
+                    <div class="compare-cell">Unlimited</div>
+
+                    <div class="compare-cell"><strong>Collaborators</strong></div>
+                    <div class="compare-cell">5 per document</div>
+                    <div class="compare-cell">20 per document</div>
+                    <div class="compare-cell">100 per document</div>
+                    <div class="compare-cell">Workspace-wide</div>
+
+                    <div class="compare-cell"><strong>Admin controls</strong></div>
+                    <div class="compare-cell">Basic</div>
+                    <div class="compare-cell">Version history</div>
+                    <div class="compare-cell">Branding and priority sync</div>
+                    <div class="compare-cell">SSO, audit logs, retention</div>
+                </div>
+
+                <div class="fine-print">
+                    Concept only. No checkout, billing, or entitlements are connected yet.
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        function goWithTransition(url) {
+            document.body.classList.add('page-leaving');
+            window.setTimeout(() => {
+                window.location.href = url;
+            }, 260);
+        }
+
+        window.addEventListener('pageshow', () => {
+            document.body.classList.remove('page-leaving');
+        });
+    </script>
+</body>
+</html>
