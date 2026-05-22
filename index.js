@@ -1,5 +1,4 @@
 const express = require('express');
-const session = require('express-session');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const http = require('http');
@@ -16,13 +15,6 @@ const PORT = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "YOUR_GROQ_API_KEY_HERE";
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-const sessionMiddleware = session({
-    secret: 'apple-style-doculock-secret-key-123!',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false }
-});
-
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -31,7 +23,14 @@ const io = new Server(server, {
     }
 });
 
-io.use((socket, next) => sessionMiddleware(socket.request, {}, next));
+io.use((socket, next) => {
+    const auth = getAuthFromRequest(socket.request);
+    if (auth) {
+        socket.request.auth = auth;
+        socket.request.session = { userId: auth.userId, username: auth.username };
+    }
+    next();
+});
 
 const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
@@ -47,6 +46,81 @@ const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
         resolve(this);
     });
 });
+
+const AUTH_COOKIE_NAME = 'doculock_auth';
+const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+const AUTH_SECRET = process.env.AUTH_SECRET || process.env.SESSION_SECRET || 'doculock-auth-secret';
+
+function parseCookies(header = '') {
+    return header.split(';').reduce((cookies, part) => {
+        const index = part.indexOf('=');
+        if (index === -1) return cookies;
+        const key = part.slice(0, index).trim();
+        const value = part.slice(index + 1).trim();
+        if (key) cookies[key] = decodeURIComponent(value);
+        return cookies;
+    }, {});
+}
+
+function signAuthValue(value) {
+    return crypto.createHmac('sha256', AUTH_SECRET).update(value).digest('base64url');
+}
+
+function createAuthToken(payload) {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = signAuthValue(body);
+    return `${body}.${signature}`;
+}
+
+function verifyAuthToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    const [body, signature] = token.split('.');
+    if (!body || !signature) return null;
+
+    const expectedSignature = signAuthValue(body);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    const providedBuffer = Buffer.from(signature);
+    if (expectedBuffer.length !== providedBuffer.length) return null;
+    if (!crypto.timingSafeEqual(expectedBuffer, providedBuffer)) return null;
+
+    try {
+        const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        if (!payload || !payload.userId || !payload.username) return null;
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
+function getAuthFromRequest(req) {
+    const cookies = parseCookies(req.headers?.cookie || '');
+    return verifyAuthToken(cookies[AUTH_COOKIE_NAME]);
+}
+
+function attachAuthContext(req, res, next) {
+    req.session = req.session || {};
+    const auth = getAuthFromRequest(req);
+    if (auth) {
+        req.auth = auth;
+        req.session.userId = auth.userId;
+        req.session.username = auth.username;
+    }
+    next();
+}
+
+function setAuthCookie(res, auth) {
+    const secure = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+    let cookie = `${AUTH_COOKIE_NAME}=${createAuthToken(auth)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_COOKIE_MAX_AGE}`;
+    if (secure) cookie += '; Secure';
+    res.setHeader('Set-Cookie', cookie);
+}
+
+function clearAuthCookie(res) {
+    const secure = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+    let cookie = `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+    if (secure) cookie += '; Secure';
+    res.setHeader('Set-Cookie', cookie);
+}
 
 const activeCollaborators = new Map();
 
@@ -212,11 +286,11 @@ function removeCollaborator(documentId, socketId) {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(sessionMiddleware);
+app.use(attachAuthContext);
 
 // --- Middleware: Verify Auth ---
 function isAuthenticated(req, res, next) {
-    if (req.session.userId) {
+    if (req.auth || req.session.userId) {
         return next();
     }
     return res.status(401).json({ error: 'Unauthorized' });
@@ -238,6 +312,9 @@ app.post('/api/register', async (req, res) => {
                 if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Username taken.' });
                 return res.status(500).json({ error: 'Database error.' });
             }
+            setAuthCookie(res, { userId: this.lastID, username });
+            req.session.userId = this.lastID;
+            req.session.username = username;
             res.json({ success: true, message: 'Account created successfully.' });
         });
     } catch (err) {
@@ -257,6 +334,7 @@ app.post('/api/login', (req, res) => {
 
         const match = await bcrypt.compare(password, user.password);
         if (match) {
+            setAuthCookie(res, { userId: user.id, username: user.username });
             req.session.userId = user.id;
             req.session.username = user.username;
             res.json({ success: true, message: 'Logged in.' });
@@ -267,12 +345,15 @@ app.post('/api/login', (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-    req.session.destroy();
+    if (typeof req.session?.destroy === 'function') {
+        req.session.destroy(() => {});
+    }
+    clearAuthCookie(res);
     res.json({ success: true, message: 'Logged out.' });
 });
 
 app.get('/api/me', isAuthenticated, (req, res) => {
-    res.json({ username: req.session.username });
+    res.json({ username: req.auth?.username || req.session.username });
 });
 
 // --- Document Routes ---

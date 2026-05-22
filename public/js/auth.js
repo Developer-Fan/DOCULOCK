@@ -1,7 +1,7 @@
 let isLogin = true;
 
 // Check if already logged in
-fetch('/api/me').then(res => {
+fetch('/api/me', { credentials: 'include' }).then(res => {
     if (res.ok) window.location.href = '/dashboard.html';
 });
 
@@ -34,6 +34,7 @@ async function submitAuth() {
     try {
         const res = await fetch(endpoint, {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
