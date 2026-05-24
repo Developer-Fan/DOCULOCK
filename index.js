@@ -283,6 +283,25 @@ function removeCollaborator(documentId, socketId) {
     updatePresence(key);
 }
 
+function disconnectCollaboratorSockets(documentId, userId) {
+    const key = Number(documentId);
+    const room = activeCollaborators.get(key);
+    if (!room) return;
+
+    for (const [socketId, collaborator] of room.entries()) {
+        if (Number(collaborator.userId) !== Number(userId)) continue;
+
+        const socket = io.sockets.sockets.get(socketId);
+        if (!socket) {
+            removeCollaborator(key, socketId);
+            continue;
+        }
+
+        socket.emit('collab:error', { message: 'Your access to this document was removed by the owner.' });
+        socket.disconnect(true);
+    }
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -420,6 +439,30 @@ app.delete('/api/docs/:id', isAuthenticated, async (req, res) => {
 
         activeCollaborators.delete(Number(req.params.id));
         io.to(getRoomName(req.params.id)).emit('document:deleted', { documentId: Number(req.params.id) });
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Database error.' });
+    }
+});
+
+app.delete('/api/docs/:id/collaborators/:permissionId', isAuthenticated, async (req, res) => {
+    try {
+        const document = await dbGet('SELECT id FROM documents WHERE id = ? AND user_id = ?', [req.params.id, req.session.userId]);
+        if (!document) return res.status(403).json({ error: 'Forbidden' });
+
+        const collaborator = await dbGet(
+            `SELECT document_permissions.id, document_permissions.user_id, users.username
+             FROM document_permissions
+             INNER JOIN users ON users.id = document_permissions.user_id
+             WHERE document_permissions.id = ? AND document_permissions.document_id = ?`,
+            [req.params.permissionId, req.params.id]
+        );
+
+        if (!collaborator) return res.status(404).json({ error: 'Collaborator not found.' });
+
+        await dbRun('DELETE FROM document_permissions WHERE id = ? AND document_id = ?', [req.params.permissionId, req.params.id]);
+        disconnectCollaboratorSockets(req.params.id, collaborator.user_id);
 
         res.json({ success: true });
     } catch (err) {
@@ -1011,7 +1054,7 @@ io.on('connection', (socket) => {
 
 // Map export routes dynamically below...
 const exportRoutes = require('./export-routes');
-app.use('/api/export', isAuthenticated, exportRoutes);
+app.use('/api/export', exportRoutes);
 
 if (require.main === module) {
     server.listen(PORT, () => {

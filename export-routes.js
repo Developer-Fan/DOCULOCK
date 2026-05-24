@@ -4,13 +4,63 @@ const db = require('./database');
 const docx = require('docx');
 const PDFDocument = require('pdfkit');
 
-// Fetch doc middleware
-async function fetchDoc(req, res, next) {
-    db.get(`SELECT * FROM documents WHERE id = ? AND user_id = ?`, [req.params.id, req.session.userId], (err, row) => {
-        if (err || !row) return res.status(404).json({ error: 'Document not found.' });
-        req.doc = row;
-        next();
+function dbGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
     });
+}
+
+async function resolveExportAccess(documentId, userId = null, shareToken = null) {
+    const document = await dbGet('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!document) return null;
+
+    if (userId && Number(document.user_id) === Number(userId)) {
+        return document;
+    }
+
+    if (userId) {
+        const sharedPermission = await dbGet(
+            `SELECT document_permissions.permission_level, document_permissions.source_share_link_id, share_links.id AS active_share_link_id, share_links.expires_at
+             FROM document_permissions
+             LEFT JOIN share_links ON share_links.id = document_permissions.source_share_link_id
+             WHERE document_permissions.document_id = ? AND document_permissions.user_id = ?`,
+            [documentId, userId]
+        );
+
+        if (sharedPermission) {
+            const activeShareLink = sharedPermission.active_share_link_id && (!sharedPermission.expires_at || new Date(sharedPermission.expires_at) >= new Date());
+            if (!sharedPermission.source_share_link_id || activeShareLink) {
+                return document;
+            }
+        }
+    }
+
+    if (shareToken) {
+        const shareLink = await dbGet(
+            'SELECT * FROM share_links WHERE token = ? AND document_id = ?',
+            [shareToken, documentId]
+        );
+
+        if (shareLink) {
+            const expired = shareLink.expires_at && new Date(shareLink.expires_at) < new Date();
+            if (!expired) {
+                return document;
+            }
+        }
+    }
+
+    return null;
+}
+
+async function fetchDoc(req, res, next) {
+    try {
+        const document = await resolveExportAccess(req.params.id, req.session?.userId || null, req.query.share || null);
+        if (!document) return res.status(404).json({ error: 'Document not found.' });
+        req.doc = document;
+        next();
+    } catch (err) {
+        return res.status(500).json({ error: 'Database error.' });
+    }
 }
 
 // Download as PDF

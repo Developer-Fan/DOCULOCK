@@ -673,8 +673,11 @@ async function deleteDoc() {
 }
 
 function exportDoc(type) {
-    document.getElementById('export-menu').style.display = 'none';
-    window.open(`/api/export/${docId}/${type}`, '_blank');
+    const exportUrl = new URL(`/api/export/${docId}/${type}`, window.location.origin);
+    if (shareToken) {
+        exportUrl.searchParams.set('share', shareToken);
+    }
+    window.open(exportUrl.toString(), '_blank');
 }
 
 function applyAIEdit(newContent) {
@@ -989,8 +992,8 @@ function copyShareLink() {
 }
 
 async function createShareLink() {
-    if (!isLoggedIn) {
-        alert('Only authenticated owners can create share links.');
+    if (!isLoggedIn || !isDocumentOwner) {
+        alert('Only the owner can create share links.');
         return;
     }
 
@@ -1013,8 +1016,8 @@ async function createShareLink() {
 }
 
 async function inviteCollaboratorByUsername() {
-    if (!isLoggedIn) {
-        alert('Only authenticated owners can invite collaborators.');
+    if (!isLoggedIn || !isDocumentOwner) {
+        alert('Only the owner can invite collaborators.');
         return;
     }
 
@@ -1044,8 +1047,8 @@ async function inviteCollaboratorByUsername() {
 
 async function refreshShareLinks() {
     const list = document.getElementById('share-links-list');
-    if (!isLoggedIn) {
-        list.innerHTML = '<p style="color: var(--text-secondary); font-size: 13px;">Share link creation requires an authenticated owner session.</p>';
+    if (!isLoggedIn || !isDocumentOwner) {
+        list.innerHTML = '<p style="color: var(--text-secondary); font-size: 13px;">Only the owner can manage share links and collaborators.</p>';
         return;
     }
 
@@ -1086,8 +1089,32 @@ async function refreshShareLinks() {
                     ? `Invited via share link ${person.share_token.slice(0, 8)}${person.share_expires_at && new Date(person.share_expires_at) < new Date() ? ' · expired' : ''}`
                     : 'Invited directly by username';
 
+                const actions = document.createElement('div');
+                actions.style = 'display: flex; gap: 8px; flex-wrap: wrap;';
+
+                const revokeButton = document.createElement('button');
+                revokeButton.className = 'btn secondary';
+                revokeButton.style.color = '#ff3b30';
+                revokeButton.textContent = 'Remove';
+                revokeButton.onclick = async () => {
+                    const confirmed = confirm(`Remove ${person.username} from this document?`);
+                    if (!confirmed) return;
+
+                    const response = await fetch(`/api/docs/${docId}/collaborators/${person.id}`, { method: 'DELETE' });
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        alert(result.error || 'Unable to remove collaborator.');
+                        return;
+                    }
+
+                    refreshShareLinks();
+                };
+
+                actions.appendChild(revokeButton);
+
                 row.appendChild(top);
                 row.appendChild(source);
+                row.appendChild(actions);
                 collaboratorsSection.appendChild(row);
             });
         }
